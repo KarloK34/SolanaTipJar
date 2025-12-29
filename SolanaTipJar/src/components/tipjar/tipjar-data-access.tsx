@@ -9,6 +9,12 @@ import { useCluster } from '../cluster/cluster-data-access'
 import { useAnchorProvider } from '../solana/solana-provider'
 import { useTransactionToast } from '../use-transaction-toast'
 import { toast } from 'sonner'
+import { utils } from '@coral-xyz/anchor'
+
+function getDiscriminator(accountName: string) {
+  const hash = utils.sha256.hash(accountName) // browser-safe
+  return Buffer.from(hash.slice(0, 8))
+}
 
 export const LAMPORTS_PER_SOL = 1_000_000_000
 
@@ -43,6 +49,18 @@ export function useTipJarProgram() {
       }
     },
     enabled: !!wallet?.publicKey,
+  })
+
+  const otherTipJarsQuery = useQuery({
+    queryKey: ['tipJars', 'all', cluster],
+    queryFn: async () => {
+      const accounts = await program.account.tipJar.all()
+      return accounts.map((acc) => ({
+        publicKey: acc.publicKey,
+        account: acc.account,
+      }))
+    },
+    enabled: !!program,
   })
 
   // Create TipJar mutation
@@ -102,5 +120,8 @@ export function useTipJarProgram() {
     myTipJar: myTipJarQuery.data,
     myTipJarLoading: myTipJarQuery.isLoading,
     refetchMyTipJar: myTipJarQuery.refetch,
+    otherTipJars: otherTipJarsQuery.data || [],
+    otherTipJarsLoading: otherTipJarsQuery.isLoading,
+    otherTipJarsError: otherTipJarsQuery.error,
   }
 }

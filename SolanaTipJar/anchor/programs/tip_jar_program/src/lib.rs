@@ -80,6 +80,10 @@ pub mod tip_jar_program {
 
 #[derive(Accounts)]
 pub struct CreateTipJar<'info> {
+
+    const NAME_MAX: usize = 100;
+    const DESC_MAX: usize = 500;
+
     #[account(
         init,
         payer = user,
@@ -87,8 +91,8 @@ pub struct CreateTipJar<'info> {
         bump,
         space = 8  // discriminator
                 + 32   // Pubkey owner
-                + 4 + 50   // String name
-                + 4 + 200  // String description
+                + 4 + NAME_MAX   // String name
+                + 4 + DESC_MAX  // String description
                 + 8    // i64
                 + 1 
     )]
