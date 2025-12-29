@@ -2,21 +2,19 @@
 
 import { getTipJarProgram, getTipJarProgramId } from '@project/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { Cluster, PublicKey } from '@solana/web3.js'
+import { Cluster, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useCluster } from '../cluster/cluster-data-access'
 import { useAnchorProvider } from '../solana/solana-provider'
 import { useTransactionToast } from '../use-transaction-toast'
 import { toast } from 'sonner'
-import { utils } from '@coral-xyz/anchor'
+import { Address, BN, utils } from '@coral-xyz/anchor'
 
 function getDiscriminator(accountName: string) {
   const hash = utils.sha256.hash(accountName) // browser-safe
   return Buffer.from(hash.slice(0, 8))
 }
-
-export const LAMPORTS_PER_SOL = 1_000_000_000
 
 export function useTipJarProgram() {
   const { connection } = useConnection()
@@ -52,8 +50,9 @@ export function useTipJarProgram() {
   })
 
   const otherTipJarsQuery = useQuery({
-    queryKey: ['tipJars', 'all', cluster],
+    queryKey: ['tipJars', 'all', wallet?.publicKey?.toString()],
     queryFn: async () => {
+      if (!wallet?.publicKey) return []
       const accounts = await program.account.tipJar.all()
       return accounts.map((acc) => ({
         publicKey: acc.publicKey,
@@ -111,6 +110,32 @@ export function useTipJarProgram() {
     queryFn: () => connection.getParsedAccountInfo(programId),
   })
 
+  const donate = useMutation({
+    mutationKey: ['tipjar', 'donate', { cluster }, wallet?.publicKey?.toString()],
+    mutationFn: async ({ tipjarAddress, amount }: { tipjarAddress: PublicKey; amount: number }) => {
+      if (!wallet.publicKey) throw new Error('Wallet not connected')
+
+      const donorPubkey = wallet.publicKey
+
+      return program.methods
+        .donate(new BN(amount * LAMPORTS_PER_SOL))
+        .accounts({
+          donor: donorPubkey,
+          tipJar: tipjarAddress,
+          feeAccount: new PublicKey('GgbVs9nBVxwNKFK6ipf64fV5ALcbAkd3asCM7dcbpYPd'),
+        })
+        .rpc()
+    },
+    onSuccess: (signature: string) => {
+      transactionToast(signature)
+      otherTipJarsQuery.refetch()
+    },
+    onError: (error: any) => {
+      console.error(error)
+      toast.error('Error donating to tip jar')
+    },
+  })
+
   return {
     program,
     programId,
@@ -123,5 +148,6 @@ export function useTipJarProgram() {
     otherTipJars: otherTipJarsQuery.data || [],
     otherTipJarsLoading: otherTipJarsQuery.isLoading,
     otherTipJarsError: otherTipJarsQuery.error,
+    donate,
   }
 }

@@ -1,5 +1,7 @@
 'use client'
 
+import { useGetBalance } from '@/components/account/account-data-access'
+import { WalletButton } from '@/components/solana/solana-provider'
 import { useTipJarProgram } from '@/components/tipjar/tipjar-data-access'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,10 +15,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { PublicKey } from '@solana/web3.js'
+import { useWallet } from '@solana/wallet-adapter-react'
+import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import BN from 'bn.js'
 import { Coins, Wallet } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 type TipJar = {
@@ -41,23 +44,55 @@ export function formatTimestamp(timestamp: BN | number): string {
 }
 
 export default function Page() {
+  const { publicKey } = useWallet()
+  if (!publicKey) {
+    return (
+      <div className="hero py-[64px]">
+        <div className="hero-content text-center">
+          <WalletButton />
+        </div>
+      </div>
+    )
+  }
+  const [availableBalance, setAvailableBalance] = useState({
+    SOL: 0,
+  })
+  const balanceQuery = useGetBalance({ address: publicKey })
+  const balance = balanceQuery.data ? balanceQuery.data / LAMPORTS_PER_SOL : 0
+
+  useEffect(() => {
+    if (balanceQuery.data) {
+      setAvailableBalance({
+        SOL: balance,
+      })
+    }
+  }, [balance])
+
   const { otherTipJars, otherTipJarsLoading } = useTipJarProgram()
 
   const [selectedJar, setSelectedJar] = useState<TipJar | null>(null)
   const [amount, setAmount] = useState('')
   const [token, setToken] = useState('SOL')
 
-  const handleDonate = () => {
-    if (!amount || Number.parseFloat(amount) <= 0) {
+  const { donate } = useTipJarProgram()
+
+  const handleDonate = async (jarAddress: PublicKey) => {
+    const donateAmount = Number.parseFloat(amount)
+    if (!donateAmount || donateAmount <= 0 || donateAmount > balance - 0.05) {
       toast('Invalid Amount', {
         description: 'Please enter a valid donation amount.',
       })
       return
     }
 
-    toast('Donation Sent!', {
-      description: `Successfully sent ${amount} ${token} to ${selectedJar?.account.name}`,
-    })
+    console.log(jarAddress)
+    console.log(donateAmount)
+
+    await donate.mutateAsync({ tipjarAddress: jarAddress, amount: donateAmount })
+
+    // toast('Donation Sent!', {
+    //   description: `Successfully sent ${amount} ${token} to ${selectedJar?.account.name}`,
+    // })
 
     setAmount('')
     setSelectedJar(null)
@@ -110,13 +145,26 @@ export default function Page() {
                   <DialogDescription>Choose the amount and token you'd like to donate</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
+                  <div className="rounded-lg bg-primary/5 border border-primary/20 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">Available Balance</span>
+                      </div>
+                      <span className="text-lg font-bold text-primary">
+                        {availableBalance[token as keyof typeof availableBalance].toFixed(4)} {token}
+                      </span>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="amount">Amount</Label>
                     <Input
                       id="amount"
                       type="number"
-                      step="0.01"
+                      step="0.25"
                       min="0"
+                      max={balance}
                       placeholder="0.00"
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
@@ -131,10 +179,9 @@ export default function Page() {
                       value={token}
                       onChange={(e) => setToken(e.target.value)}
                     >
-                      <option value="SOL">SOL (Solana)</option>
-                      <option value="USDC">USDC</option>
-                      <option value="USDT">USDT</option>
-                      <option value="BONK">BONK</option>
+                      {Object.keys(availableBalance).map((coin) => {
+                        return <option value={coin}>{coin}</option>
+                      })}
                     </select>
                   </div>
 
@@ -143,7 +190,7 @@ export default function Page() {
                     <p className="text-xs font-mono break-all">{jar.publicKey.toBase58()}</p>
                   </div>
 
-                  <Button onClick={handleDonate} className="w-full" size="lg">
+                  <Button onClick={() => handleDonate(jar.publicKey)} className="w-full" size="lg">
                     <Coins className="mr-2 h-5 w-5" />
                     Send {amount || '0'} {token}
                   </Button>

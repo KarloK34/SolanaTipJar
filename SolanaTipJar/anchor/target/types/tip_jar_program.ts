@@ -141,6 +141,10 @@ export type TipJarProgram = {
           "writable": true
         },
         {
+          "name": "feeAccount",
+          "writable": true
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -222,6 +226,11 @@ export type TipJarProgram = {
       "code": 6000,
       "name": "unauthorized",
       "msg": "Unauthorized: only the owner can perform this action"
+    },
+    {
+      "code": 6001,
+      "name": "calculationOverflow",
+      "msg": "Calculation overflow occurred"
     }
   ],
   "types": [

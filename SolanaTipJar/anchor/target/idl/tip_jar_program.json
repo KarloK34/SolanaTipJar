@@ -135,6 +135,10 @@
           "writable": true
         },
         {
+          "name": "fee_account",
+          "writable": true
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -216,6 +220,11 @@
       "code": 6000,
       "name": "Unauthorized",
       "msg": "Unauthorized: only the owner can perform this action"
+    },
+    {
+      "code": 6001,
+      "name": "CalculationOverflow",
+      "msg": "Calculation overflow occurred"
     }
   ],
   "types": [

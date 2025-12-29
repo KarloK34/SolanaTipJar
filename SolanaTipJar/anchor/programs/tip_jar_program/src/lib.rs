@@ -2,6 +2,15 @@ use anchor_lang::prelude::*;
 
 declare_id!("FF5Z4788Lg36hMGnYVuM6xUvtkCLGzRc7duPbfW537js");
 
+// Constants defined at module level
+// NOTE: Update your Anchor.toml with:
+// [toolchain]
+// anchor_version = "0.31.1"
+
+const FEE_PERCENTAGE: u64 = 10; // 10%
+const NAME_MAX: usize = 100;
+const DESC_MAX: usize = 500;
+
 #[program]
 pub mod tip_jar_program {
     use super::*;
@@ -13,7 +22,7 @@ pub mod tip_jar_program {
     ) -> Result<()> {
         let tip_jar = &mut ctx.accounts.tip_jar;
 
-        tip_jar.owner = ctx.accounts.user.key(); // ← OVO JE POVEZNICA
+        tip_jar.owner = ctx.accounts.user.key();
         tip_jar.name = name;
         tip_jar.description = description;
         tip_jar.created_at = Clock::get()?.unix_timestamp;
@@ -23,14 +32,39 @@ pub mod tip_jar_program {
     }
 
     pub fn donate(ctx: Context<Donate>, amount: u64) -> Result<()> {
-        let ix = anchor_lang::solana_program::system_instruction::transfer(
+        // Calculate fee (10% of donation)
+        let fee_amount = amount.checked_mul(FEE_PERCENTAGE)
+            .ok_or(CustomError::CalculationOverflow)?
+            .checked_div(100)
+            .ok_or(CustomError::CalculationOverflow)?;
+        
+        let tip_amount = amount.checked_sub(fee_amount)
+            .ok_or(CustomError::CalculationOverflow)?;
+
+        // Transfer fee to fee account
+        let fee_ix = anchor_lang::solana_program::system_instruction::transfer(
             &ctx.accounts.donor.key(),
-            &ctx.accounts.tip_jar.key(),
-            amount,
+            &ctx.accounts.fee_account.key(),
+            fee_amount,
         );
 
         anchor_lang::solana_program::program::invoke(
-            &ix,
+            &fee_ix,
+            &[
+                ctx.accounts.donor.to_account_info(),
+                ctx.accounts.fee_account.to_account_info(),
+            ],
+        )?;
+
+        // Transfer remaining amount to tip jar
+        let tip_ix = anchor_lang::solana_program::system_instruction::transfer(
+            &ctx.accounts.donor.key(),
+            &ctx.accounts.tip_jar.key(),
+            tip_amount,
+        );
+
+        anchor_lang::solana_program::program::invoke(
+            &tip_ix,
             &[
                 ctx.accounts.donor.to_account_info(),
                 ctx.accounts.tip_jar.to_account_info(),
@@ -75,15 +109,10 @@ pub mod tip_jar_program {
 
         Ok(())
     }
-
 }
 
 #[derive(Accounts)]
 pub struct CreateTipJar<'info> {
-
-    const NAME_MAX: usize = 100;
-    const DESC_MAX: usize = 500;
-
     #[account(
         init,
         payer = user,
@@ -111,6 +140,10 @@ pub struct Donate<'info> {
 
     #[account(mut)]
     pub tip_jar: Account<'info, TipJar>,
+
+    /// CHECK: Fee account - hardcoded address
+    #[account(mut, address = pubkey!("GgbVs9nBVxwNKFK6ipf64fV5ALcbAkd3asCM7dcbpYPd"))]
+    pub fee_account: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -157,4 +190,6 @@ pub struct TipJar {
 pub enum CustomError {
     #[msg("Unauthorized: only the owner can perform this action")]
     Unauthorized,
+    #[msg("Calculation overflow occurred")]
+    CalculationOverflow,
 }
