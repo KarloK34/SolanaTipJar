@@ -16,6 +16,15 @@ function getDiscriminator(accountName: string) {
   return Buffer.from(hash.slice(0, 8))
 }
 
+export interface DonationTransaction {
+  signature: string
+  timestamp: number | null
+  donor: string
+  amount: number // in SOL
+  fee: number // in SOL
+  slot: number
+}
+
 export function useTipJarProgram() {
   const { connection } = useConnection()
   const wallet = useWallet()
@@ -27,6 +36,101 @@ export function useTipJarProgram() {
   // Program and Program ID
   const programId = useMemo(() => getTipJarProgramId(cluster.network as Cluster), [cluster])
   const program = useMemo(() => getTipJarProgram(provider, programId), [provider, programId])
+
+  const tipJarPda = useMemo(() => {
+    if (!wallet?.publicKey) return null
+    const [pda] = PublicKey.findProgramAddressSync([Buffer.from('tipjar'), wallet.publicKey.toBuffer()], programId)
+    return pda
+  }, [wallet?.publicKey, programId])
+
+  const transactionsQuery = useQuery({
+    queryKey: ['tipjar', 'transactions', tipJarPda?.toString()],
+    queryFn: async (): Promise<DonationTransaction[]> => {
+      if (!tipJarPda) return []
+
+      try {
+        // Get all signatures for the tip jar account
+        const signatures = await connection.getSignaturesForAddress(tipJarPda, {
+          limit: 1000, // Adjust as needed
+        })
+
+        // Fetch all transactions in parallel
+        const transactions = await Promise.all(
+          signatures.map((sig) =>
+            connection.getParsedTransaction(sig.signature, {
+              maxSupportedTransactionVersion: 0,
+            }),
+          ),
+        )
+
+        // Filter and parse donation transactions
+        const donations: DonationTransaction[] = []
+
+        for (let i = 0; i < transactions.length; i++) {
+          const tx = transactions[i]
+          const sig = signatures[i]
+
+          if (!tx?.meta || tx.meta.err) continue
+
+          // Look for the donate instruction
+          const donateInstruction = tx.transaction.message.instructions.find((ix) => {
+            if ('programId' in ix) {
+              return ix.programId.equals(programId)
+            }
+            return false
+          })
+
+          if (!donateInstruction) continue
+
+          // Parse the instruction to identify if it's a donate call
+          const innerInstructions = tx.meta.innerInstructions || []
+
+          // Look for system program transfers in inner instructions
+          let totalTransferred = 0
+          let donor = ''
+
+          for (const inner of innerInstructions) {
+            for (const ix of inner.instructions) {
+              if ('parsed' in ix && ix.program === 'system' && ix.parsed.type === 'transfer') {
+                const info = ix.parsed.info
+
+                // Check if this transfer is TO the tip jar
+                if (info.destination === tipJarPda.toString()) {
+                  totalTransferred += info.lamports
+                  donor = info.source
+                }
+              }
+            }
+          }
+
+          // If we found a transfer to the tip jar, it's a donation
+          if (totalTransferred > 0 && donor) {
+            // Calculate original amount (before 10% fee was taken)
+            const tipAmount = totalTransferred / LAMPORTS_PER_SOL
+            const originalAmount = tipAmount / 0.9 // Reverse the 90% calculation
+            const feeAmount = originalAmount * 0.1
+
+            donations.push({
+              signature: sig.signature,
+              timestamp: tx.blockTime ?? null,
+              donor,
+              amount: originalAmount,
+              fee: feeAmount,
+              slot: sig.slot,
+            })
+          }
+        }
+
+        // Sort by timestamp (most recent first)
+        return donations.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      } catch (error) {
+        console.error('Error fetching transactions:', error)
+        return []
+      }
+    },
+    enabled: !!tipJarPda,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  })
 
   // Fetch the current user's TipJar account
   const myTipJarQuery = useQuery({
@@ -149,5 +253,7 @@ export function useTipJarProgram() {
     otherTipJarsLoading: otherTipJarsQuery.isLoading,
     otherTipJarsError: otherTipJarsQuery.error,
     donate,
+    transactions: transactionsQuery.data || [],
+    transactionsLoading: transactionsQuery.isLoading,
   }
 }

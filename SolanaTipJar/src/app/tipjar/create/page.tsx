@@ -1,6 +1,7 @@
 'use client'
 
 import { CreateTipJarForm } from '@/components/tipjar/create/create-tip-jar-form'
+import { DonationList } from '@/components/tipjar/donation/donation-list'
 import { useTipJarProgram } from '@/components/tipjar/tipjar-data-access'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -8,7 +9,7 @@ import { Label } from '@radix-ui/react-dropdown-menu'
 import { ExternalLink } from 'lucide-react'
 
 export default function Page() {
-  const { myTipJar, deleteTipJar } = useTipJarProgram()
+  const { myTipJar, deleteTipJar, transactions } = useTipJarProgram()
   console.log(myTipJar)
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/20">
@@ -57,6 +58,8 @@ export default function Page() {
                   </Button>
                 </CardContent>
               </Card>
+
+              <DonationList transactions={transactions} />
             </div>
           ) : (
             <>
