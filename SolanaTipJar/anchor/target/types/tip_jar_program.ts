@@ -157,6 +157,55 @@ export type TipJarProgram = {
       ]
     },
     {
+      "name": "donateToken",
+      "discriminator": [
+        25,
+        216,
+        125,
+        238,
+        108,
+        3,
+        44,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "donor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tipJar",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "donorTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "feeTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "tipJarTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "withdraw",
       "discriminator": [
         183,

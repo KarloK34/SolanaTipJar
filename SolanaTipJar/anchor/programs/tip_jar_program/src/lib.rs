@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Token, TokenAccount};
 
 declare_id!("FF5Z4788Lg36hMGnYVuM6xUvtkCLGzRc7duPbfW537js");
 
@@ -69,6 +70,67 @@ pub mod tip_jar_program {
                 ctx.accounts.donor.to_account_info(),
                 ctx.accounts.tip_jar.to_account_info(),
             ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn donate_token(ctx: Context<DonateToken>, amount: u64) -> Result<()> {
+        // Verify token accounts
+        let donor_token = &ctx.accounts.donor_token_account;
+        let fee_token = &ctx.accounts.fee_token_account;
+        let tip_jar_token = &ctx.accounts.tip_jar_token_account;
+
+        require!(
+            donor_token.owner == ctx.accounts.donor.key(),
+            CustomError::Unauthorized
+        );
+        require!(
+            donor_token.mint == ctx.accounts.mint.key(),
+            CustomError::Unauthorized
+        );
+        require!(
+            fee_token.mint == ctx.accounts.mint.key(),
+            CustomError::Unauthorized
+        );
+        require!(
+            tip_jar_token.mint == ctx.accounts.mint.key(),
+            CustomError::Unauthorized
+        );
+
+        // Calculate fee (10% of donation)
+        let fee_amount = amount.checked_mul(FEE_PERCENTAGE)
+            .ok_or(CustomError::CalculationOverflow)?
+            .checked_div(100)
+            .ok_or(CustomError::CalculationOverflow)?;
+        
+        let tip_amount = amount.checked_sub(fee_amount)
+            .ok_or(CustomError::CalculationOverflow)?;
+
+        // Transfer fee to fee token account
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: donor_token.to_account_info(),
+                    to: fee_token.to_account_info(),
+                    authority: ctx.accounts.donor.to_account_info(),
+                },
+            ),
+            fee_amount,
+        )?;
+
+        // Transfer remaining amount to tip jar token account
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: donor_token.to_account_info(),
+                    to: tip_jar_token.to_account_info(),
+                    authority: ctx.accounts.donor.to_account_info(),
+                },
+            ),
+            tip_amount,
         )?;
 
         Ok(())
@@ -146,6 +208,31 @@ pub struct Donate<'info> {
     pub fee_account: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct DonateToken<'info> {
+    #[account(mut)]
+    pub donor: Signer<'info>,
+
+    #[account(mut)]
+    pub tip_jar: Account<'info, TipJar>,
+
+    /// CHECK: Mint address for the token
+    pub mint: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub donor_token_account: Account<'info, TokenAccount>,
+
+    /// CHECK: Fee token account (ATA for fee account)
+    #[account(mut)]
+    pub fee_token_account: Account<'info, TokenAccount>,
+
+    /// CHECK: Tip jar token account (ATA for tip jar PDA)
+    #[account(mut)]
+    pub tip_jar_token_account: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]

@@ -13,12 +13,16 @@ import {
 } from '@solana/web3.js'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-export function useGetBalance({ address }: { address: PublicKey }) {
+export function useGetBalance({ address }: { address: PublicKey | null | undefined }) {
   const { connection } = useConnection()
 
   return useQuery({
-    queryKey: ['get-balance', { endpoint: connection.rpcEndpoint, address }],
-    queryFn: () => connection.getBalance(address),
+    queryKey: ['get-balance', { endpoint: connection.rpcEndpoint, address: address?.toString() }],
+    queryFn: () => {
+      if (!address) throw new Error('Address is required')
+      return connection.getBalance(address)
+    },
+    enabled: !!address,
   })
 }
 
@@ -31,12 +35,13 @@ export function useGetSignatures({ address }: { address: PublicKey }) {
   })
 }
 
-export function useGetTokenAccounts({ address }: { address: PublicKey }) {
+export function useGetTokenAccounts({ address }: { address: PublicKey | null | undefined }) {
   const { connection } = useConnection()
 
   return useQuery({
-    queryKey: ['get-token-accounts', { endpoint: connection.rpcEndpoint, address }],
+    queryKey: ['get-token-accounts', { endpoint: connection.rpcEndpoint, address: address?.toString() }],
     queryFn: async () => {
+      if (!address) throw new Error('Address is required')
       const [tokenAccounts, token2022Accounts] = await Promise.all([
         connection.getParsedTokenAccountsByOwner(address, {
           programId: TOKEN_PROGRAM_ID,
@@ -47,6 +52,7 @@ export function useGetTokenAccounts({ address }: { address: PublicKey }) {
       ])
       return [...tokenAccounts.value, ...token2022Accounts.value]
     },
+    enabled: !!address,
   })
 }
 

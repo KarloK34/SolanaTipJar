@@ -10,6 +10,7 @@ import { useAnchorProvider } from '../solana/solana-provider'
 import { useTransactionToast } from '../use-transaction-toast'
 import { toast } from 'sonner'
 import { Address, BN, utils } from '@coral-xyz/anchor'
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token'
 
 function getDiscriminator(accountName: string) {
   const hash = utils.sha256.hash(accountName) // browser-safe
@@ -136,6 +137,110 @@ export function useTipJarProgram() {
     },
   })
 
+  const donateToken = useMutation({
+    mutationKey: ['tipjar', 'donateToken', { cluster }, wallet?.publicKey?.toString()],
+    mutationFn: async ({
+      tipjarAddress,
+      tipJarOwner,
+      mint,
+      amount,
+    }: {
+      tipjarAddress: PublicKey
+      tipJarOwner: PublicKey
+      mint: PublicKey
+      amount: number
+    }) => {
+      if (!wallet.publicKey || !wallet.sendTransaction) throw new Error('Wallet not connected')
+
+      const donorPubkey = wallet.publicKey
+      const feeAccount = new PublicKey('GgbVs9nBVxwNKFK6ipf64fV5ALcbAkd3asCM7dcbpYPd')
+
+      // Get ATAs - use tip jar owner (not the PDA) for the ATA owner
+      const [donorTokenAccount, feeTokenAccount, tipJarTokenAccount] = await Promise.all([
+        getAssociatedTokenAddress(mint, donorPubkey, false, TOKEN_PROGRAM_ID),
+        getAssociatedTokenAddress(mint, feeAccount, false, TOKEN_PROGRAM_ID),
+        getAssociatedTokenAddress(mint, tipJarOwner, false, TOKEN_PROGRAM_ID),
+      ])
+
+      // Check if ATAs exist, create if needed
+      const [donorAccountInfo, feeAccountInfo, tipJarAccountInfo] = await Promise.all([
+        connection.getAccountInfo(donorTokenAccount),
+        connection.getAccountInfo(feeTokenAccount),
+        connection.getAccountInfo(tipJarTokenAccount),
+      ])
+
+      // Create ATAs if they don't exist
+      const { Transaction } = await import('@solana/web3.js')
+      const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token')
+
+      if (!donorAccountInfo) {
+        throw new Error('Donor token account does not exist. Please receive some tokens first.')
+      }
+
+      const ataTransaction = new Transaction()
+      let needsAtaCreation = false
+
+      if (!feeAccountInfo) {
+        ataTransaction.add(
+          createAssociatedTokenAccountInstruction(
+            donorPubkey,
+            feeTokenAccount,
+            feeAccount,
+            mint,
+            TOKEN_PROGRAM_ID,
+          ),
+        )
+        needsAtaCreation = true
+      }
+
+      if (!tipJarAccountInfo) {
+        ataTransaction.add(
+          createAssociatedTokenAccountInstruction(
+            donorPubkey,
+            tipJarTokenAccount,
+            tipJarOwner,
+            mint,
+            TOKEN_PROGRAM_ID,
+          ),
+        )
+        needsAtaCreation = true
+      }
+
+      // Send ATA creation transaction if needed
+      if (needsAtaCreation) {
+        const latestBlockhash = await connection.getLatestBlockhash()
+        ataTransaction.recentBlockhash = latestBlockhash.blockhash
+        ataTransaction.feePayer = donorPubkey
+
+        const ataSignature = await wallet.sendTransaction(ataTransaction, connection)
+        await connection.confirmTransaction({ signature: ataSignature, ...latestBlockhash }, 'confirmed')
+      }
+
+      // Convert amount to BN
+      const tokenAmount = new BN(amount)
+
+      return program.methods
+        .donateToken(tokenAmount)
+        .accounts({
+          donor: donorPubkey,
+          tipJar: tipjarAddress,
+          mint: mint,
+          donorTokenAccount: donorTokenAccount,
+          feeTokenAccount: feeTokenAccount,
+          tipJarTokenAccount: tipJarTokenAccount,
+        })
+        .rpc()
+    },
+    onSuccess: (signature: string) => {
+      transactionToast(signature)
+      otherTipJarsQuery.refetch()
+    },
+    onError: (error: any) => {
+      console.error(error)
+      toast.error('Error donating tokens to tip jar')
+    },
+  })
+
   return {
     program,
     programId,
@@ -149,5 +254,6 @@ export function useTipJarProgram() {
     otherTipJarsLoading: otherTipJarsQuery.isLoading,
     otherTipJarsError: otherTipJarsQuery.error,
     donate,
+    donateToken,
   }
 }
