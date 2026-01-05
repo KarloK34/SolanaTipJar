@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/tip_jar_program.json`.
  */
 export type TipJarProgram = {
-  "address": "FF5Z4788Lg36hMGnYVuM6xUvtkCLGzRc7duPbfW537js",
+  "address": "EhoANy4H2iyrU49xLvyKzBcvbwkfhEURLeYMrbse8RTo",
   "metadata": {
     "name": "tipJarProgram",
     "version": "0.1.0",
@@ -147,6 +147,54 @@ export type TipJarProgram = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "donateToken",
+      "discriminator": [
+        25,
+        216,
+        125,
+        238,
+        108,
+        3,
+        44,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "donor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tipJar",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "donorTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "feeTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "tipJarTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
         }
       ],
       "args": [

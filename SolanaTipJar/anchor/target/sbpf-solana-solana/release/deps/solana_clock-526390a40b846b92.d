@@ -1,0 +1,8 @@
+/home/karlo/SolanaTipJar/SolanaTipJar/anchor/target/sbpf-solana-solana/release/deps/libsolana_clock-526390a40b846b92.rmeta: /home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/lib.rs /home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/sysvar.rs
+
+/home/karlo/SolanaTipJar/SolanaTipJar/anchor/target/sbpf-solana-solana/release/deps/libsolana_clock-526390a40b846b92.rlib: /home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/lib.rs /home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/sysvar.rs
+
+/home/karlo/SolanaTipJar/SolanaTipJar/anchor/target/sbpf-solana-solana/release/deps/solana_clock-526390a40b846b92.d: /home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/lib.rs /home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/sysvar.rs
+
+/home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/lib.rs:
+/home/karlo/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-clock-2.2.1/src/sysvar.rs:

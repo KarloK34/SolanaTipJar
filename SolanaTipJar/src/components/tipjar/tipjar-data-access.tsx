@@ -2,19 +2,15 @@
 
 import { getTipJarProgram, getTipJarProgramId } from '@project/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { Cluster, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Cluster, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useCluster } from '../cluster/cluster-data-access'
 import { useAnchorProvider } from '../solana/solana-provider'
 import { useTransactionToast } from '../use-transaction-toast'
 import { toast } from 'sonner'
-import { Address, BN, utils } from '@coral-xyz/anchor'
-
-function getDiscriminator(accountName: string) {
-  const hash = utils.sha256.hash(accountName) // browser-safe
-  return Buffer.from(hash.slice(0, 8))
-}
+import { BN } from '@coral-xyz/anchor'
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
 
 export interface DonationTransaction {
   signature: string
@@ -31,7 +27,6 @@ export function useTipJarProgram() {
   const { cluster } = useCluster()
   const transactionToast = useTransactionToast()
   const provider = useAnchorProvider()
-  const queryClient = useQueryClient()
 
   // Program and Program ID
   const programId = useMemo(() => getTipJarProgramId(cluster.network as Cluster), [cluster])
@@ -240,6 +235,131 @@ export function useTipJarProgram() {
     },
   })
 
+  const donateToken = useMutation({
+    mutationKey: ['tipjar', 'donateToken', { cluster }, wallet?.publicKey?.toString()],
+    mutationFn: async ({
+      tipjarAddress,
+      tipJarOwner,
+      mint,
+      amount,
+    }: {
+      tipjarAddress: PublicKey
+      tipJarOwner: PublicKey
+      mint: PublicKey
+      amount: number
+    }) => {
+      if (!wallet.publicKey || !wallet.sendTransaction) throw new Error('Wallet not connected')
+
+      const donorPubkey = wallet.publicKey
+      const feeAccount = new PublicKey('GgbVs9nBVxwNKFK6ipf64fV5ALcbAkd3asCM7dcbpYPd')
+
+      // Detect which token program this mint uses
+      const mintInfo = await connection.getAccountInfo(mint)
+      if (!mintInfo) {
+        throw new Error('Mint account not found')
+      }
+
+      // Token-2022 program ID
+      const TOKEN_2022_PROGRAM = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
+      const isToken2022 = mintInfo.owner.equals(TOKEN_2022_PROGRAM)
+      const tokenProgramId = isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID
+
+      // Get ATAs - use tip jar owner (not the PDA) for the ATA owner
+      const [donorTokenAccount, feeTokenAccount, tipJarTokenAccount] = await Promise.all([
+        getAssociatedTokenAddress(mint, donorPubkey, false, tokenProgramId),
+        getAssociatedTokenAddress(mint, feeAccount, false, tokenProgramId),
+        getAssociatedTokenAddress(mint, tipJarOwner, false, tokenProgramId),
+      ])
+
+      // Check if donating to self (donor and tip jar owner are the same)
+      const isSelfDonation = donorPubkey.equals(tipJarOwner)
+      if (isSelfDonation && donorTokenAccount.equals(tipJarTokenAccount)) {
+        throw new Error('Cannot donate to your own tip jar - donor and recipient token accounts are the same')
+      }
+
+      // Check if ATAs exist, create if needed
+      const [donorAccountInfo, feeAccountInfo, tipJarAccountInfo] = await Promise.all([
+        connection.getAccountInfo(donorTokenAccount),
+        connection.getAccountInfo(feeTokenAccount),
+        connection.getAccountInfo(tipJarTokenAccount),
+      ])
+
+      // Create ATAs if they don't exist
+      const { Transaction: SolanaTransaction } = await import('@solana/web3.js')
+      const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token')
+
+      if (!donorAccountInfo) {
+        throw new Error('Donor token account does not exist. Please receive some tokens first.')
+      }
+
+      const ataTransaction = new SolanaTransaction()
+      let needsAtaCreation = false
+
+      if (!feeAccountInfo) {
+        ataTransaction.add(
+          createAssociatedTokenAccountInstruction(
+            donorPubkey,
+            feeTokenAccount,
+            feeAccount,
+            mint,
+            tokenProgramId,
+          ),
+        )
+        needsAtaCreation = true
+      }
+
+      if (!tipJarAccountInfo) {
+        ataTransaction.add(
+          createAssociatedTokenAccountInstruction(
+            donorPubkey,
+            tipJarTokenAccount,
+            tipJarOwner,
+            mint,
+            tokenProgramId,
+          ),
+        )
+        needsAtaCreation = true
+      }
+
+      // Send ATA creation transaction if needed
+      if (needsAtaCreation) {
+        const latestBlockhash = await connection.getLatestBlockhash()
+        ataTransaction.recentBlockhash = latestBlockhash.blockhash
+        ataTransaction.feePayer = donorPubkey
+
+        const ataSignature = await wallet.sendTransaction(ataTransaction, connection)
+        await connection.confirmTransaction({ signature: ataSignature, ...latestBlockhash }, 'confirmed')
+      }
+
+      // Convert amount to BN
+      const tokenAmount = new BN(amount)
+
+      // Use Anchor's .rpc() method which handles transaction building and signing properly
+      const signature = await program.methods
+        .donateToken(tokenAmount)
+        .accounts({
+          donor: donorPubkey,
+          tipJar: tipjarAddress,
+          mint: mint,
+          donorTokenAccount: donorTokenAccount,
+          feeTokenAccount: feeTokenAccount,
+          tipJarTokenAccount: tipJarTokenAccount,
+          tokenProgram: tokenProgramId,
+        })
+        .rpc()
+
+      return signature
+    },
+    onSuccess: (signature: string) => {
+      transactionToast(signature)
+      otherTipJarsQuery.refetch()
+    },
+    onError: (error: any) => {
+      console.error(error)
+      toast.error('Error donating tokens to tip jar')
+    },
+  })
+
   return {
     program,
     programId,
@@ -253,6 +373,7 @@ export function useTipJarProgram() {
     otherTipJarsLoading: otherTipJarsQuery.isLoading,
     otherTipJarsError: otherTipJarsQuery.error,
     donate,
+    donateToken,
     transactions: transactionsQuery.data || [],
     transactionsLoading: transactionsQuery.isLoading,
   }

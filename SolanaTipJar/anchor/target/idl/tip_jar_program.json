@@ -1,5 +1,5 @@
 {
-  "address": "FF5Z4788Lg36hMGnYVuM6xUvtkCLGzRc7duPbfW537js",
+  "address": "EhoANy4H2iyrU49xLvyKzBcvbwkfhEURLeYMrbse8RTo",
   "metadata": {
     "name": "tip_jar_program",
     "version": "0.1.0",
@@ -141,6 +141,54 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "donate_token",
+      "discriminator": [
+        25,
+        216,
+        125,
+        238,
+        108,
+        3,
+        44,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "donor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tip_jar",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "donor_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_token_account",
+          "writable": true
+        },
+        {
+          "name": "tip_jar_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program"
         }
       ],
       "args": [

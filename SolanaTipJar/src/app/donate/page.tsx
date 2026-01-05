@@ -1,6 +1,6 @@
 'use client'
 
-import { useGetBalance } from '@/components/account/account-data-access'
+import { useGetBalance, useGetTokenAccounts } from '@/components/account/account-data-access'
 import { WalletButton } from '@/components/solana/solana-provider'
 import { useTipJarProgram } from '@/components/tipjar/tipjar-data-access'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import BN from 'bn.js'
 import { Coins, Wallet } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 type TipJar = {
@@ -43,8 +43,73 @@ export function formatTimestamp(timestamp: BN | number): string {
   })
 }
 
+// Known token mappings (for Token-2022 tokens that don't expose symbol in parsed data)
+const KNOWN_TOKENS: Record<string, string> = {
+  'JjxRUwLTVgrdePm8QnfzEsbXVdTHS46LKJszEdD1zuV': 'TJT', // Tip Jar Token
+}
+
+// Helper function to get token display name
+function getTokenDisplayName(mint: string, symbol?: string): string {
+  // If symbol exists from parsed data, use it
+  if (symbol) return symbol
+  
+  // Check known token mappings (for Token-2022)
+  if (KNOWN_TOKENS[mint]) {
+    return KNOWN_TOKENS[mint]
+  }
+  
+  // Otherwise, use a more readable format: first 4 + last 4 characters
+  if (mint.length > 8) {
+    return `${mint.slice(0, 4)}...${mint.slice(-4)}`
+  }
+  return mint
+}
+
 export default function Page() {
   const { publicKey } = useWallet()
+  const balanceQuery = useGetBalance({ address: publicKey })
+  const tokenAccountsQuery = useGetTokenAccounts({ address: publicKey })
+  const balance = balanceQuery.data ? balanceQuery.data / LAMPORTS_PER_SOL : 0
+
+  const { otherTipJars, otherTipJarsLoading, donate, donateToken } = useTipJarProgram()
+
+  // Build available balances map
+  const availableBalance = useMemo(() => {
+    const balances: Record<string, number> = { SOL: balance }
+
+    if (tokenAccountsQuery.data) {
+      tokenAccountsQuery.data.forEach((account) => {
+        const parsedInfo = account.account.data.parsed?.info
+        if (parsedInfo) {
+          const mint = parsedInfo.mint
+          const tokenAmount = parsedInfo.tokenAmount?.uiAmount || 0
+          const symbol = getTokenDisplayName(mint, parsedInfo.tokenAmount?.symbol)
+          balances[symbol] = tokenAmount
+        }
+      })
+    }
+
+    return balances
+  }, [balance, tokenAccountsQuery.data])
+
+  const [selectedJar, setSelectedJar] = useState<TipJar | null>(null)
+  const [amount, setAmount] = useState('')
+  const [token, setToken] = useState('SOL')
+
+  // Get selected token mint if not SOL
+  const selectedTokenMint = useMemo(() => {
+    if (token === 'SOL') return null
+    const tokenAccount = tokenAccountsQuery.data?.find((acc) => {
+      const parsedInfo = acc.account.data.parsed?.info
+      const symbol = getTokenDisplayName(
+        parsedInfo?.mint || '',
+        parsedInfo?.tokenAmount?.symbol
+      )
+      return symbol === token
+    })
+    return tokenAccount ? new PublicKey(tokenAccount.account.data.parsed.info.mint) : null
+  }, [token, tokenAccountsQuery.data])
+
   if (!publicKey) {
     return (
       <div className="hero py-[64px]">
@@ -54,48 +119,87 @@ export default function Page() {
       </div>
     )
   }
-  const [availableBalance, setAvailableBalance] = useState({
-    SOL: 0,
-  })
-  const balanceQuery = useGetBalance({ address: publicKey })
-  const balance = balanceQuery.data ? balanceQuery.data / LAMPORTS_PER_SOL : 0
-
-  useEffect(() => {
-    if (balanceQuery.data) {
-      setAvailableBalance({
-        SOL: balance,
-      })
-    }
-  }, [balance])
-
-  const { otherTipJars, otherTipJarsLoading } = useTipJarProgram()
-
-  const [selectedJar, setSelectedJar] = useState<TipJar | null>(null)
-  const [amount, setAmount] = useState('')
-  const [token, setToken] = useState('SOL')
-
-  const { donate } = useTipJarProgram()
 
   const handleDonate = async (jarAddress: PublicKey) => {
     const donateAmount = Number.parseFloat(amount)
-    if (!donateAmount || donateAmount <= 0 || donateAmount > balance - 0.05) {
+    const currentBalance = availableBalance[token] || 0
+
+    if (!donateAmount || donateAmount <= 0 || donateAmount > currentBalance) {
       toast('Invalid Amount', {
         description: 'Please enter a valid donation amount.',
       })
       return
     }
 
-    console.log(jarAddress)
-    console.log(donateAmount)
+    try {
+      if (token === 'SOL') {
+        // SOL donation
+        if (donateAmount > balance - 0.05) {
+          toast('Insufficient Balance', {
+            description: 'Please ensure you have enough SOL for fees.',
+          })
+          return
+        }
+        await donate.mutateAsync({ tipjarAddress: jarAddress, amount: donateAmount })
+      } else {
+        // Token donation
+        if (!selectedTokenMint) {
+          toast('Invalid Token', {
+            description: 'Please select a valid token.',
+          })
+          return
+        }
 
-    await donate.mutateAsync({ tipjarAddress: jarAddress, amount: donateAmount })
+        // Get token decimals
+        const tokenAccount = tokenAccountsQuery.data?.find((acc) => {
+          const parsedInfo = acc.account.data.parsed?.info
+          const symbol = getTokenDisplayName(
+            parsedInfo?.mint || '',
+            parsedInfo?.tokenAmount?.symbol
+          )
+          return symbol === token
+        })
 
-    // toast('Donation Sent!', {
-    //   description: `Successfully sent ${amount} ${token} to ${selectedJar?.account.name}`,
-    // })
+        if (!tokenAccount) {
+          toast('Token Account Not Found', {
+            description: 'Could not find token account.',
+          })
+          return
+        }
 
-    setAmount('')
-    setSelectedJar(null)
+        const decimals = tokenAccount.account.data.parsed.info.tokenAmount.decimals
+
+        // Convert amount to token's smallest unit
+        const tokenAmount = Math.floor(donateAmount * Math.pow(10, decimals))
+
+        // Find the jar to get the owner
+        const jar = otherTipJars.find((j) => j.publicKey.equals(jarAddress))
+        if (!jar) {
+          toast('Tip Jar Not Found', {
+            description: 'Could not find tip jar information.',
+          })
+          return
+        }
+
+        await donateToken.mutateAsync({
+          tipjarAddress: jarAddress,
+          tipJarOwner: jar.account.owner,
+          mint: selectedTokenMint,
+          amount: tokenAmount,
+        })
+      }
+
+      toast('Donation Sent!', {
+        description: `Successfully sent ${amount} ${token} to ${selectedJar?.account.name}`,
+      })
+
+      setAmount('')
+      setSelectedJar(null)
+    } catch (error) {
+      console.error('Donation error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send donation'
+      toast.error(errorMessage)
+    }
   }
 
   if (otherTipJarsLoading) {
@@ -142,7 +246,7 @@ export default function Page() {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Send a Tip to {jar.account.name}</DialogTitle>
-                  <DialogDescription>Choose the amount and token you'd like to donate</DialogDescription>
+                  <DialogDescription>Choose the amount and token you&apos;d like to donate</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="rounded-lg bg-primary/5 border border-primary/20 p-4">
@@ -180,7 +284,11 @@ export default function Page() {
                       onChange={(e) => setToken(e.target.value)}
                     >
                       {Object.keys(availableBalance).map((coin) => {
-                        return <option value={coin}>{coin}</option>
+                        return (
+                          <option key={coin} value={coin}>
+                            {coin} ({availableBalance[coin].toFixed(4)})
+                          </option>
+                        )
                       })}
                     </select>
                   </div>

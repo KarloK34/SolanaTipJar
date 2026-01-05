@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-tip_jar_program = "FF5Z4788Lg36hMGnYVuM6xUvtkCLGzRc7duPbfW537js"
+tip_jar_program = "EhoANy4H2iyrU49xLvyKzBcvbwkfhEURLeYMrbse8RTo"
 
 [registry]
 url = "https://api.apr.dev"
