@@ -11,14 +11,19 @@ import { useTransactionToast } from '../use-transaction-toast'
 import { toast } from 'sonner'
 import { BN } from '@coral-xyz/anchor'
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
+import { getTokenDisplayName } from '@/lib/utils'
 
 export interface DonationTransaction {
   signature: string
   timestamp: number | null
   donor: string
-  amount: number // in SOL
-  fee: number // in SOL
+  amount: number // in SOL or token units
+  fee: number // in SOL or token units
   slot: number
+  tokenType: 'SOL' | 'SPL' // Type of donation
+  mint?: string // Mint address for SPL tokens
+  symbol?: string // Token symbol for display
+  decimals?: number // Token decimals for SPL tokens
 }
 
 export function useTipJarProgram() {
@@ -58,6 +63,17 @@ export function useTipJarProgram() {
           ),
         )
 
+        // Get tip jar owner once (for token account matching)
+        let tipJarOwner: string | null = null
+        try {
+          const tipJarAccount = await program.account.tipJar.fetch(tipJarPda).catch(() => null)
+          if (tipJarAccount) {
+            tipJarOwner = tipJarAccount.owner.toString()
+          }
+        } catch (error) {
+          // Continue without tip jar owner info
+        }
+
         // Filter and parse donation transactions
         const donations: DonationTransaction[] = []
 
@@ -80,12 +96,29 @@ export function useTipJarProgram() {
           // Parse the instruction to identify if it's a donate call
           const innerInstructions = tx.meta.innerInstructions || []
 
-          // Look for system program transfers in inner instructions
+          // Look for system program transfers (SOL) in inner instructions
           let totalTransferred = 0
           let donor = ''
 
+          // Look for token transfers (SPL tokens)
+          let tokenTransfer: {
+            amount: number
+            mint: string
+            decimals: number
+            symbol?: string
+            donor: string
+          } | null = null
+
+          // First, collect all token transfers from inner instructions
+          const tokenTransfers: Array<{
+            destination: string
+            authority: string
+            amount: string
+          }> = []
+
           for (const inner of innerInstructions) {
             for (const ix of inner.instructions) {
+              // Check for SOL transfers
               if ('parsed' in ix && ix.program === 'system' && ix.parsed.type === 'transfer') {
                 const info = ix.parsed.info
 
@@ -95,10 +128,88 @@ export function useTipJarProgram() {
                   donor = info.source
                 }
               }
+
+              // Collect SPL token transfers
+              if (
+                'parsed' in ix &&
+                (ix.program === 'spl-token' || ix.program === 'spl-token-2022') &&
+                ix.parsed.type === 'transfer'
+              ) {
+                const info = ix.parsed.info
+                tokenTransfers.push({
+                  destination: info.destination || '',
+                  authority: info.authority || info.source || '',
+                  amount: info.amount || info.tokenAmount || '0',
+                })
+              }
             }
           }
 
-          // If we found a transfer to the tip jar, it's a donation
+          // Check token balance changes to find donations
+          if (tx.meta.postTokenBalances && tx.meta.preTokenBalances && tipJarOwner) {
+            for (const postBalance of tx.meta.postTokenBalances) {
+              const preBalance = tx.meta.preTokenBalances.find(
+                (pre) => pre.accountIndex === postBalance.accountIndex && pre.mint === postBalance.mint,
+              )
+
+              if (preBalance && postBalance) {
+                const preAmount = parseFloat(preBalance.uiTokenAmount.uiAmountString || '0')
+                const postAmount = parseFloat(postBalance.uiTokenAmount.uiAmountString || '0')
+                const amountChange = postAmount - preAmount
+
+                // If balance increased, check if this is the tip jar owner's account
+                if (amountChange > 0 && postBalance.mint) {
+                  const accountKeyRaw = tx.transaction.message.accountKeys[postBalance.accountIndex]
+                  if (accountKeyRaw) {
+                    // Convert to PublicKey - handle both string and object types
+                    let accountKey: PublicKey
+                    if (typeof accountKeyRaw === 'string') {
+                      accountKey = new PublicKey(accountKeyRaw)
+                    } else if (accountKeyRaw instanceof PublicKey) {
+                      accountKey = accountKeyRaw
+                    } else {
+                      // It's a ParsedMessageAccount object, extract pubkey
+                      accountKey = 'pubkey' in accountKeyRaw ? accountKeyRaw.pubkey : new PublicKey(accountKeyRaw)
+                    }
+                    const accountKeyString = accountKey.toString()
+
+                    // Check if this token account belongs to the tip jar owner
+                    // We'll match by checking if there's a transfer to this account
+                    const matchingTransfer = tokenTransfers.find((t) => t.destination === accountKeyString)
+                    if (matchingTransfer) {
+                      // Verify this account belongs to tip jar owner by checking parsed account data
+                      try {
+                        const accountInfo = await connection.getParsedAccountInfo(accountKey).catch(() => null)
+                        if (
+                          accountInfo?.value &&
+                          'parsed' in accountInfo.value.data &&
+                          accountInfo.value.data.parsed.info.owner === tipJarOwner
+                        ) {
+                          // Resolve token symbol using the helper function
+                          const tokenSymbol = getTokenDisplayName(
+                            postBalance.mint,
+                            undefined // uiTokenAmount doesn't have symbol
+                          )
+                          tokenTransfer = {
+                            amount: amountChange,
+                            mint: postBalance.mint,
+                            decimals: postBalance.uiTokenAmount.decimals,
+                            symbol: tokenSymbol,
+                            donor: matchingTransfer.authority,
+                          }
+                          break
+                        }
+                      } catch (error) {
+                        // Continue checking other accounts
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Handle SOL donation
           if (totalTransferred > 0 && donor) {
             // Calculate original amount (before 10% fee was taken)
             const tipAmount = totalTransferred / LAMPORTS_PER_SOL
@@ -112,6 +223,28 @@ export function useTipJarProgram() {
               amount: originalAmount,
               fee: feeAmount,
               slot: sig.slot,
+              tokenType: 'SOL',
+            })
+          }
+
+          // Handle SPL token donation
+          if (tokenTransfer && tokenTransfer.amount > 0 && tokenTransfer.donor) {
+            // Calculate original amount (before 10% fee was taken)
+            const tipAmount = tokenTransfer.amount
+            const originalAmount = tipAmount / 0.9 // Reverse the 90% calculation
+            const feeAmount = originalAmount * 0.1
+
+            donations.push({
+              signature: sig.signature,
+              timestamp: tx.blockTime ?? null,
+              donor: tokenTransfer.donor,
+              amount: originalAmount,
+              fee: feeAmount,
+              slot: sig.slot,
+              tokenType: 'SPL',
+              mint: tokenTransfer.mint,
+              symbol: tokenTransfer.symbol,
+              decimals: tokenTransfer.decimals,
             })
           }
         }

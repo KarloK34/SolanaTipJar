@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { ArrowDownLeft, ExternalLink } from 'lucide-react'
 import { DonationTransaction } from '../tipjar-data-access'
+import { getTokenDisplayName } from '@/lib/utils'
 
 export function DonationList({ transactions }: { transactions: DonationTransaction[] }) {
   return (
@@ -27,14 +28,31 @@ export function DonationList({ transactions }: { transactions: DonationTransacti
               >
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium">{tx.amount.toFixed(4)} SOL</p>
+                    <p className="font-medium">
+                      {tx.amount.toFixed(tx.decimals || 4)}{' '}
+                      {tx.tokenType === 'SOL'
+                        ? 'SOL'
+                        : tx.mint
+                          ? getTokenDisplayName(tx.mint, tx.symbol)
+                          : tx.symbol || 'Token'}
+                    </p>
                     <span className="text-xs text-muted-foreground px-2 py-0.5 rounded-full bg-muted">
-                      Fee: {tx.fee.toFixed(6)} SOL
+                      Fee: {tx.fee.toFixed(tx.decimals || 6)}{' '}
+                      {tx.tokenType === 'SOL'
+                        ? 'SOL'
+                        : tx.mint
+                          ? getTokenDisplayName(tx.mint, tx.symbol)
+                          : tx.symbol || 'Token'}
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground font-mono truncate">From: {tx.donor}</p>
+                  {tx.mint && (
+                    <p className="text-xs text-muted-foreground font-mono truncate">
+                      Mint: {tx.mint.slice(0, 8)}...{tx.mint.slice(-8)}
+                    </p>
+                  )}
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    {tx.timestamp && <span>{new Date(tx.timestamp).toLocaleString()}</span>}
+                    {tx.timestamp && <span>{new Date(tx.timestamp * 1000).toLocaleString()}</span>}
                     <span>Slot: {tx.slot}</span>
                   </div>
                 </div>

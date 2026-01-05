@@ -21,6 +21,7 @@ import BN from 'bn.js'
 import { Coins, Wallet } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { getTokenDisplayName } from '@/lib/utils'
 
 type TipJar = {
   publicKey: PublicKey
@@ -43,27 +44,6 @@ export function formatTimestamp(timestamp: BN | number): string {
   })
 }
 
-// Known token mappings (for Token-2022 tokens that don't expose symbol in parsed data)
-const KNOWN_TOKENS: Record<string, string> = {
-  'JjxRUwLTVgrdePm8QnfzEsbXVdTHS46LKJszEdD1zuV': 'TJT', // Tip Jar Token
-}
-
-// Helper function to get token display name
-function getTokenDisplayName(mint: string, symbol?: string): string {
-  // If symbol exists from parsed data, use it
-  if (symbol) return symbol
-  
-  // Check known token mappings (for Token-2022)
-  if (KNOWN_TOKENS[mint]) {
-    return KNOWN_TOKENS[mint]
-  }
-  
-  // Otherwise, use a more readable format: first 4 + last 4 characters
-  if (mint.length > 8) {
-    return `${mint.slice(0, 4)}...${mint.slice(-4)}`
-  }
-  return mint
-}
 
 export default function Page() {
   const { publicKey } = useWallet()
