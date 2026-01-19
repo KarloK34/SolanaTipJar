@@ -213,9 +213,16 @@ pub mod tip_jar_program {
         let lamports_in_account = ctx.accounts.tip_jar.to_account_info().lamports();
         let rent_exempt =
             Rent::get()?.minimum_balance(ctx.accounts.tip_jar.to_account_info().data_len());
-        let withdraw_amount = std::cmp::min(amount, lamports_in_account - rent_exempt);
+        require!(
+            lamports_in_account > rent_exempt,
+            CustomError::CalculationOverflow
+        );
 
-        **ctx
+        let withdraw_amount = std::cmp::min(
+            amount,
+            lamports_in_account.saturating_sub(rent_exempt)
+        );
+                **ctx
             .accounts
             .tip_jar
             .to_account_info()
@@ -316,7 +323,10 @@ pub struct Withdraw<'info> {
         bump = tip_jar.bump,
     )]
     pub tip_jar: Account<'info, TipJar>,
+
+    pub system_program: Program<'info, System>,
 }
+
 
 #[derive(Accounts)]
 pub struct DeleteTipJar<'info> {

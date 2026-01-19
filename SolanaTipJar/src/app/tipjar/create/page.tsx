@@ -4,13 +4,29 @@ import { CreateTipJarForm } from '@/components/tipjar/create/create-tip-jar-form
 import { DonationList } from '@/components/tipjar/donation/donation-list'
 import { useTipJarProgram } from '@/components/tipjar/tipjar-data-access'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Label } from '@radix-ui/react-dropdown-menu'
 import { ExternalLink } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function Page() {
-  const { myTipJar, deleteTipJar, transactions } = useTipJarProgram()
-  console.log(myTipJar)
+  const { myTipJar, deleteTipJar, withdraw, transactions } = useTipJarProgram()
+
+  const handleWithdraw = async () => {
+    if (!myTipJar?.balance || myTipJar.balance === 0) {
+      toast.error('No funds to withdraw')
+      return
+    }
+
+    try {
+      await withdraw.mutateAsync()
+      toast.success('Withdraw successful!')
+    } catch (err) {
+      console.error(err)
+      toast.error('Withdraw failed')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/20">
       <div className="container mx-auto px-4 py-8">
@@ -48,14 +64,24 @@ export default function Page() {
                       <p className="text-4xl font-bold text-balance">{myTipJar.balance?.toFixed(4) || '0.0000'} SOL</p>
                     </div>
                   </div>
-                  <Button
-                    variant={'destructive'}
-                    onClick={() => {
-                      deleteTipJar.mutateAsync()
-                    }}
-                  >
-                    {deleteTipJar.isPending ? 'Deleting...' : 'Delete Tip Jar'}
-                  </Button>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button
+                      variant="destructive"
+                      onClick={() => deleteTipJar.mutateAsync()}
+                      disabled={deleteTipJar.isPending}
+                    >
+                      {deleteTipJar.isPending ? 'Deleting...' : 'Delete Tip Jar'}
+                    </Button>
+
+                    <Button
+                      variant="default"
+                      onClick={handleWithdraw}
+                      disabled={withdraw.isPending || !myTipJar.balance || myTipJar.balance === 0}
+                    >
+                      {withdraw.isPending ? 'Withdrawing...' : 'Withdraw All'}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
 

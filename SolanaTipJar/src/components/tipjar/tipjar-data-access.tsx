@@ -188,7 +188,7 @@ export function useTipJarProgram() {
                           // Resolve token symbol using the helper function
                           const tokenSymbol = getTokenDisplayName(
                             postBalance.mint,
-                            undefined // uiTokenAmount doesn't have symbol
+                            undefined, // uiTokenAmount doesn't have symbol
                           )
                           tokenTransfer = {
                             amount: amountChange,
@@ -336,6 +336,31 @@ export function useTipJarProgram() {
       toast.error(error)
     },
   })
+  const withdraw = useMutation({
+    mutationKey: ['tipjar', 'withdraw', { cluster }, wallet?.publicKey?.toString()],
+    mutationFn: async () => {
+      if (!wallet.publicKey) throw new Error('Wallet not connected')
+      if (!tipJarPda) throw new Error('Tip jar not found')
+
+      const amount = new BN(10_000_000_000) // withdraw all
+
+      return program.methods
+        .withdraw(amount)
+        .accounts({
+          user: wallet.publicKey,
+          tipJar: tipJarPda,
+        } as any)
+        .rpc()
+    },
+    onSuccess: (signature: string) => {
+      transactionToast(signature)
+      myTipJarQuery.refetch()
+    },
+    onError: (error: any) => {
+      console.error(error)
+      toast.error('Error withdrawing funds')
+    },
+  })
 
   const getProgramAccount = useQuery({
     queryKey: ['get-program-account', { cluster }],
@@ -430,26 +455,14 @@ export function useTipJarProgram() {
 
       if (!feeAccountInfo) {
         ataTransaction.add(
-          createAssociatedTokenAccountInstruction(
-            donorPubkey,
-            feeTokenAccount,
-            feeAccount,
-            mint,
-            tokenProgramId,
-          ),
+          createAssociatedTokenAccountInstruction(donorPubkey, feeTokenAccount, feeAccount, mint, tokenProgramId),
         )
         needsAtaCreation = true
       }
 
       if (!tipJarAccountInfo) {
         ataTransaction.add(
-          createAssociatedTokenAccountInstruction(
-            donorPubkey,
-            tipJarTokenAccount,
-            tipJarOwner,
-            mint,
-            tokenProgramId,
-          ),
+          createAssociatedTokenAccountInstruction(donorPubkey, tipJarTokenAccount, tipJarOwner, mint, tokenProgramId),
         )
         needsAtaCreation = true
       }
@@ -499,6 +512,7 @@ export function useTipJarProgram() {
     getProgramAccount,
     createTipJar,
     deleteTipJar,
+    withdraw,
     myTipJar: myTipJarQuery.data,
     myTipJarLoading: myTipJarQuery.isLoading,
     refetchMyTipJar: myTipJarQuery.refetch,
