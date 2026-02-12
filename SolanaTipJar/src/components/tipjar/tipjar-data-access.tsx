@@ -51,7 +51,7 @@ export function useTipJarProgram() {
       try {
         // Get all signatures for the tip jar account
         const signatures = await connection.getSignaturesForAddress(tipJarPda, {
-          limit: 1000, // Adjust as needed
+          limit: 1000, 
         })
 
         // Fetch all transactions in parallel
