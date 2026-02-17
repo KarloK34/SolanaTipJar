@@ -257,7 +257,7 @@ export function useTipJarProgram() {
       }
     },
     enabled: !!tipJarPda,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 60000, // Refetch every 60 seconds to reduce RPC load
   })
 
   // Fetch the current user's TipJar account

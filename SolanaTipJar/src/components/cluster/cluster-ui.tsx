@@ -32,6 +32,7 @@ export function ClusterChecker({ children }: { children: ReactNode }) {
   const query = useQuery({
     queryKey: ['version', { cluster, endpoint: connection.rpcEndpoint }],
     queryFn: () => connection.getVersion(),
+    staleTime: 2 * 60 * 1000,
     retry: 1,
   })
   if (query.isLoading) {

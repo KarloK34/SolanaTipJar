@@ -24,6 +24,8 @@ export function useGetBalance({ address }: { address: PublicKey | null | undefin
       return connection.getBalance(address)
     },
     enabled: !!address,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -33,7 +35,7 @@ export function useGetSignatures({ address }: { address: PublicKey }) {
   return useQuery({
     queryKey: ['get-signatures', { endpoint: connection.rpcEndpoint, address }],
     queryFn: () => connection.getSignaturesForAddress(address),
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    staleTime: 45 * 1000,
     refetchOnWindowFocus: false, // Don't refetch on window focus
     retry: (failureCount, error: any) => {
       // Don't retry on 429 (Too Many Requests) errors
@@ -91,14 +93,14 @@ export function useGetParsedTransactions({ address }: { address: PublicKey }) {
     queryFn: async (): Promise<ParsedTransaction[]> => {
       if (!signaturesQuery.data || signaturesQuery.data.length === 0) return []
 
-      // Fetch parsed transactions (limit to first 50 for performance)
-      const signatures = signaturesQuery.data.slice(0, 50)
+      // Fetch parsed transactions (limit to reduce RPC load on public endpoints)
+      const signatures = signaturesQuery.data.slice(0, 10)
       
-      // Batch requests to avoid rate limits: 10 at a time with 200ms delay between batches
+      // Batch requests to avoid rate limits: 5 at a time with 400ms delay between batches
       const transactions = await batchRequests(
         signatures,
-        10,
-        200,
+        5,
+        400,
         (sig) =>
           connection.getParsedTransaction(sig.signature, {
             maxSupportedTransactionVersion: 0,
@@ -524,7 +526,7 @@ export function useGetParsedTransactions({ address }: { address: PublicKey }) {
       return parsed
     },
     enabled: !!signaturesQuery.data && signaturesQuery.data.length > 0,
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    staleTime: 90 * 1000,
     refetchOnWindowFocus: false, // Don't refetch on window focus
     refetchOnMount: false, // Don't refetch on mount if data is fresh
     retry: (failureCount, error: any) => {
@@ -557,7 +559,7 @@ export function useGetTokenAccounts({ address }: { address: PublicKey | null | u
       return [...tokenAccounts.value, ...token2022Accounts.value]
     },
     enabled: !!address,
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    staleTime: 60 * 1000,
     refetchOnWindowFocus: false, // Don't refetch on window focus
     retry: (failureCount, error: any) => {
       // Don't retry on 429 (Too Many Requests) errors
